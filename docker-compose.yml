@@ -1,0 +1,76 @@
+services:
+    nginx:
+        build: ./nginx
+        container_name: nginx
+        ports:
+            - '8080:80'
+        depends_on:
+            - backend
+        networks:
+            - app
+        restart: unless-stopped
+
+    backend:
+        build: ./backend
+        expose:
+            - '3000'
+        env_file:
+            - .env
+        depends_on:
+            postgres:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+        networks:
+            - app
+        restart: unless-stopped
+        deploy:
+            replicas: 2
+
+    redis:
+        build: ./redis
+        container_name: redis
+        volumes:
+            - redisdata:/data
+        networks:
+            - app
+        restart: unless-stopped
+
+    postgres:
+        build: ./postgresql
+        container_name: postgres
+        environment:
+            POSTGRES_USER: ${DB_USER}
+            POSTGRES_PASSWORD: ${DB_PASS}
+            POSTGRES_DB: ${DB_NAME}
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        networks:
+            - app
+        restart: unless-stopped
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U ${DB_USER}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    migrate:
+        build: ./backend
+        container_name: db-migrate
+        command: sh -c "npx wait-port postgres:5432 -t 30000 && npm run migrate"
+        depends_on:
+            postgres:
+                condition: service_healthy
+        env_file:
+            - .env
+        networks:
+            - app
+        restart: 'no'
+
+networks:
+    app:
+        driver: bridge
+
+volumes:
+    pgdata:
+    redisdata:

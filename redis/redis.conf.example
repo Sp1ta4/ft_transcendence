@@ -1,0 +1,18 @@
+bind 0.0.0.0
+
+# Persistence
+save 900 1
+save 300 10
+save 60 10000
+
+dir /data
+dbfilename dump.rdb
+
+# Memory
+maxmemory 256mb
+maxmemory-policy allkeys-lru
+
+# Password (must match REDIS_PASSWORD in .env)
+requirepass your_redis_password
+
+loglevel notice

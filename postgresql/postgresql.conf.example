@@ -1,0 +1,17 @@
+# Connection
+listen_addresses = '*'
+max_connections = 100
+
+# Memory
+shared_buffers = 128MB
+work_mem = 4MB
+maintenance_work_mem = 64MB
+
+# Logging
+log_timezone = 'UTC'
+log_statement = 'none'
+log_min_duration_statement = 1000
+
+# Locale
+datestyle = 'iso, mdy'
+timezone = 'UTC'
