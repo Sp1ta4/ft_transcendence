@@ -1,0 +1,7 @@
+{
+  "home": "Home",
+  "profile": "Profile",
+  "friends": "Friends",
+"settings": "Settings",
+  "logout": "Logout"
+}

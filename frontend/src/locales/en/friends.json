@@ -1,0 +1,28 @@
+{
+  "title": "Friends",
+  "search": "Search users...",
+  "tabs": {
+    "all": "All friends",
+    "online": "Online",
+    "requests": "Requests"
+  },
+  "empty": {
+    "all": "You have no friends yet.",
+    "online": "No friends are online.",
+    "requests": "No pending requests."
+  },
+  "actions": {
+    "add": "Add friend",
+    "remove": "Remove",
+    "accept": "Accept",
+    "decline": "Decline",
+    "block": "Block",
+    "message": "Message",
+    "challenge": "Challenge"
+  },
+  "request": {
+    "sent": "Friend request sent.",
+    "accepted": "Friend request accepted.",
+    "declined": "Friend request declined."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "title": "Profile",
+  "stats": {
+    "wins": "Wins",
+    "losses": "Losses",
+    "rank": "Rank",
+    "winRate": "Win rate"
+  },
+  "editTitle": "Edit profile",
+  "fields": {
+    "username": "Username",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "avatar": "Avatar",
+    "changeAvatar": "Change avatar"
+  },
+  "friends": {
+    "title": "Friends",
+    "empty": "No friends yet.",
+    "addFriend": "Add friend",
+    "removeFriend": "Remove friend",
+    "pending": "Pending"
+  }
+}

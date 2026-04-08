@@ -25,7 +25,7 @@ init:
 up:
 	@echo "$(CYAN)Starting services...$(RESET)"
 	@$(DC) up --build -d
-	@echo "$(GREEN)Services started → http://localhost:8080$(RESET)"
+	@echo "$(GREEN)Services started → https://localhost$(RESET)"
 
 ## Stop all services
 down:

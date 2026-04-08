@@ -1,0 +1,26 @@
+{
+  "app": {
+    "name": "ft_transcendence"
+  },
+  "actions": {
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "confirm": "Confirm",
+    "close": "Close"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "notFound": "Page not found.",
+    "unauthorized": "You are not authorized to view this page.",
+    "network": "Network error. Check your connection."
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "inGame": "In game"
+  }
+}
