@@ -38,8 +38,7 @@ class AuthController {
 						.max(64)
 						.required(),
 					birth_date: Joi.date().less('now').required(),
-					role: Joi.string().optional().valid('user', 'admin').default('user'),
-					avatar_url: Joi.string().uri().optional().allow(null).default(null),
+					role: Joi.string().optional().valid('user', 'admin').default('user')
 				})
 			);
 			if (!checkEmailUnique(email)) {
@@ -52,8 +51,7 @@ class AuthController {
 				username,
 				password,
 				birth_date,
-				role,
-				avatar_url,
+				role
 			});
 			res.status(HttpStatus.OK).json({ message: CONFIRM_YOUR_EMAIL });
 		} catch (error) {
@@ -194,12 +192,22 @@ class AuthController {
 			const decoded = verifyAccess(token);
 
 			res.setHeader('X-User-Id', decoded.sub);
-			res.status(200).send();
+			res.status(HttpStatus.OK).send();
 		} catch (err) {
 			console.error('Token validation error:', err.message);
-			return res.status(403).json({ error: 'Invalid token' });
+			return res.status(HttpStatus.FORBIDDEN).json({ error: 'Invalid token' });
 		}
 	};
+
+	getCurrentUser = async (req, res, next) => {
+		try {
+			const id = req.userId;
+			const user = await this.service.getUserById(id);
+			res.status(HttpStatus.OK).json({ user });
+		} catch (err) {
+			next(err);
+		}
+	}
 }
 
 export default AuthController;

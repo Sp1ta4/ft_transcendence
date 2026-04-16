@@ -48,9 +48,11 @@ ft_transcendence/
 ```bash
 cd backend
 npm install
-npx prisma generate
+npx prisma generate 
 # configure environment variables (see backend/.env.example)
 npm run migrate:dev
+# or
+npx prisma db push # if you run for first time and there is nor tables in db 
 npm run dev
 ```
 

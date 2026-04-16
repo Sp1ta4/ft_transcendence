@@ -1,0 +1,65 @@
+
+model User {
+  id            Int       @id @default(autoincrement())
+  first_name    String
+  last_name     String
+  email         String    @unique
+  username      String    @unique
+  password_hash String?   // NULL if no password (e.g. OAuth user)
+  role          String    @default("user")
+  avatar_url    String?
+  bio           String?
+  is_verified   Boolean   @default(false)
+  is_online     Boolean   @default(false)
+  last_seen     DateTime? @db.Timestamptz
+  birth_date    DateTime? @db.Date
+  created_at    DateTime  @default(now()) @db.Timestamptz
+  updated_at    DateTime? @db.Timestamptz
+  deleted_at    DateTime? @db.Timestamptz
+
+  // Relations
+  oauth_accounts        OAuthAccount[]
+  posts                 Post[]
+  post_likes            PostLike[]
+  comment_likes         CommentLike[]
+  comments              Comment[]
+
+  // followers / following
+  following             Follow[]       @relation("follower")
+  followers             Follow[]       @relation("following")
+
+  // DM
+  conversation_participants ConversationParticipant[]
+  sent_messages             Message[]
+
+  // Notifications
+  notifications_received Notification[] @relation("notif_receiver")
+  notifications_sent     Notification[] @relation("notif_actor")
+
+  @@map("users")
+}
+
+model OAuthAccount {
+  id               Int      @id @default(autoincrement())
+  user_id          Int
+  provider         String   // 'github' | 'google'
+  provider_user_id String
+  access_token     String?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_user_id])
+  @@map("oauth_accounts")
+}
+
+model Follow {
+  follower_id  Int
+  following_id Int
+  created_at   DateTime @default(now()) @db.Timestamptz
+
+  follower  User @relation("follower",  fields: [follower_id],  references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [following_id], references: [id], onDelete: Cascade)
+
+  @@id([follower_id, following_id])
+  @@map("follows")
+}

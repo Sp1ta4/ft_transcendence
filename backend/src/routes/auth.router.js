@@ -9,5 +9,5 @@ router.post('/refresh', container.authController.refresh);
 router.post('/login', container.authController.login);
 router.post('/logout', container.authController.logout);
 router.get('/validate', container.authController.validateToken);
-
+router.get('/me', container.authController.getCurrentUser);
 export default router;

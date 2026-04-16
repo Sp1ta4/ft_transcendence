@@ -47,6 +47,14 @@ class AuthRepository {
 			await this.removeSession(userId, sessionId);
 		}
 	}
+
+	async getUserById(userId) {
+		return await this.db.User.findUnique({
+			where: {
+				id: userId
+			}
+		});
+	}
 }
 
 export default AuthRepository;

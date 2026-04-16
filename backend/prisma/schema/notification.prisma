@@ -1,0 +1,14 @@
+model Notification {
+  id         Int      @id @default(autoincrement())
+  user_id    Int      // to whom
+  actor_id   Int      // from whom
+  type       String   // 'like' | 'comment' | 'follow' | 'message' | 'reply'
+  entity_id  Int?     // id post / comment / message
+  is_read    Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  user  User @relation("notif_receiver", fields: [user_id],  references: [id], onDelete: Cascade)
+  actor User @relation("notif_actor",    fields: [actor_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
