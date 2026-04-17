@@ -154,17 +154,3 @@ app.ts
 | `verbatimModuleSyntax` | `true` | `import type` required for type-only imports |
 | `noUnusedLocals/Params` | `true` | Compiler error on unused variables / parameters |
 | `moduleDetection` | `force` | Every file is treated as a module |
-
-### Request Type Extension
-
-`src/types/express.d.ts` augments `Express.Request` with a `userId` field:
-
-```typescript
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: number; // populated by auth middleware before protected routes
-    }
-  }
-}
-```

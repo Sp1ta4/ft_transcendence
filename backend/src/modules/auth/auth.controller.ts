@@ -1,42 +1,15 @@
 import type { Request, Response, NextFunction } from 'express';
 import checkEmailUnique from '../../utils/checkEmailUnique.js';
 import validateSchema from '../../utils/validateSchema.js';
-import { CONFIRM_YOUR_EMAIL } from '../../constants/success_messages.js';
+import { CONFIRM_YOUR_EMAIL, SUCCESSFULLY_REGISTERED } from '../../constants/success_messages.js';
 import { StatusCodes } from 'http-status-codes';import Joi from 'joi';
 import DataValidationError from '../../utils/error/DataValidationError.js';
 import { verifyAccess } from '../../utils/jwt.js';
 import type AuthService from './auth.service.js';
-
-interface RegisterBody {
-  first_name: string;
-  last_name: string;
-  email: string;
-  username: string;
-  password: string;
-  birth_date: Date;
-  role: string;
-}
-
-interface ConfirmBody {
-  email: string;
-  confirmation_code: string;
-}
-
-interface LoginBody {
-  email: string;
-  password: string;
-  fingerprint: string;
-}
-
-interface RefreshBody {
-  userId: number;
-  fingerprint: string;
-}
-
-interface LogoutBody {
-  userId: number;
-  sessionId: string;
-}
+import type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody } from '../../types/User/IAuthorization.js';
+import { EMAIL_ALREADY_IN_USE, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_TOKEN_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
+import crypto from 'crypto';
+import HttpError from '../../utils/error/HttpError.js';
 
 class AuthController {
   private service: AuthService;
@@ -48,7 +21,7 @@ class AuthController {
   register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { first_name, last_name, email, username, password, birth_date, role } =
-        validateSchema<RegisterBody>(
+        validateSchema<IRegisterBody>(
           req.body,
           Joi.object({
             first_name: Joi.string().min(2).max(42).required(),
@@ -68,7 +41,7 @@ class AuthController {
 
       const isUnique = await checkEmailUnique(email);
       if (!isUnique) {
-        throw new DataValidationError('Email is already in use');
+        throw new DataValidationError(EMAIL_ALREADY_IN_USE);
       }
       await this.service.register({ first_name, last_name, email, username, password, birth_date, role });
       res.status(StatusCodes.OK).json({ message: CONFIRM_YOUR_EMAIL });
@@ -79,7 +52,7 @@ class AuthController {
 
   confirm = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { email, confirmation_code } = validateSchema<ConfirmBody>(
+      const { email, confirmation_code } = validateSchema<IConfirmBody>(
         req.body,
         Joi.object({
           email: Joi.string().email().required(),
@@ -87,7 +60,7 @@ class AuthController {
         })
       );
       await this.service.confirm(email, confirmation_code);
-      res.status(StatusCodes.CREATED).json({ message: 'You successfully registered' });
+      res.status(StatusCodes.CREATED).json({ message: SUCCESSFULLY_REGISTERED});
     } catch (error) {
       next(error);
     }
@@ -95,7 +68,7 @@ class AuthController {
 
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { email, password, fingerprint } = validateSchema<LoginBody>(
+      const { email, password, fingerprint } = validateSchema<ILoginBody>(
         req.body,
         Joi.object({
           email: Joi.string().email().required(),
@@ -120,7 +93,7 @@ class AuthController {
 
   refresh = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { userId, fingerprint } = validateSchema<RefreshBody>(
+      const { userId, fingerprint } = validateSchema<IRefreshBody>(
         req.body,
         Joi.object({
           userId: Joi.number().positive().required(),
@@ -128,8 +101,8 @@ class AuthController {
         })
       );
 
-      const refreshToken = req.cookies?.refreshToken as string | undefined;
-      const sessionId = req.cookies?.sessionId as string | undefined;
+      const refreshToken = req.cookies?.refreshToken as string ;
+      const sessionId = req.cookies?.sessionId as string;
 
       if (!refreshToken || !sessionId) {
         throw new DataValidationError();
@@ -148,7 +121,7 @@ class AuthController {
 
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { userId, sessionId } = validateSchema<LogoutBody>(
+      const { userId, sessionId } = validateSchema<ILogoutBody>(
         req.body,
         Joi.object({
           userId: Joi.number().positive().required(),
@@ -179,7 +152,7 @@ class AuthController {
       res.status(StatusCodes.OK).send();
     } catch (err) {
       console.error('Token validation error:', err instanceof Error ? err.message : err);
-      res.status(StatusCodes.FORBIDDEN).json({ error: 'Invalid token' });
+      res.status(StatusCodes.FORBIDDEN).json({ error: INVALID_TOKEN_ERROR });
     }
   };
 
@@ -187,7 +160,7 @@ class AuthController {
     try {
       const id = Number(res.locals.userId);
       if (!Number.isInteger(id) || id <= 0) {
-        res.status(StatusCodes.UNAUTHORIZED).json({ error: 'Unauthorized' });
+        res.status(StatusCodes.UNAUTHORIZED).json({ error: UNAUTHORIZED_ERROR });
         return;
       }
 
@@ -214,6 +187,82 @@ class AuthController {
       sameSite: 'lax',
       maxAge: 30 * 24 * 3600 * 1000,
     });
+  }
+
+  initiateGoogleOAuth = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+          throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
+        }
+        const nonce = crypto.randomBytes(16).toString("hex");
+        const hmac = crypto
+              .createHmac("sha256", jwtSecret)
+              .update(nonce)
+              .digest("hex");
+
+        const payload = {
+          nonce,
+          hmac,
+          iat: Date.now(), // issued at
+        };
+        const state = Buffer.from(JSON.stringify(payload)).toString('base64url'); const redirectUrl = this.service.generateAuthUrl(state);
+        res.status(StatusCodes.TEMPORARY_REDIRECT).redirect(redirectUrl);
+    } catch (err) {
+        next(err);
+    }
+  }
+
+  handleGoogleOAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) {
+        throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
+      }
+
+      const { code, state } = req.query;
+
+      if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Missing or invalid code/state');
+      }
+
+      let parsedState: { nonce: string; hmac: string; iat: number };
+      try {
+        parsedState = JSON.parse(Buffer.from(state, 'base64url').toString());
+      } catch {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state format');
+      }
+
+      const { nonce, hmac, iat } = parsedState;
+
+      if (!iat || Date.now() - iat > 10 * 60 * 1000) {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'State expired');
+      }
+
+      const expectedHmac = crypto
+        .createHmac('sha256', jwtSecret)
+        .update(nonce)
+        .digest('hex');
+
+      if (
+        hmac.length !== expectedHmac.length ||
+        !crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expectedHmac, 'hex'))
+      ) {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state signature');
+      }
+
+      const tokens = await this.service.exchangeCodeForTokens(code);
+
+      const userInfo = await this.service.getUserInfoFromToken(tokens.id_token);
+
+      const user = await this.service.upsertUserFromOAuth(userInfo);
+
+      const accessToken = signAccess(user.id, sessionId);
+
+      res.status(StatusCodes.OK).json({ accessToken });
+    } catch (err) {
+      next(err);
+    }
   }
 }
 

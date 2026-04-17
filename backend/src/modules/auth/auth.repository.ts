@@ -1,3 +1,4 @@
+import { ACCESS_TTL } from '../../constants/users.js';
 import type { Redis } from '../../resources/redis.js';
 
 interface SessionData {
@@ -22,7 +23,7 @@ class AuthRepository {
   async addSession(userId: number, data: AddSessionData): Promise<void> {
     try {
       await this.cache.zAdd(`user:${userId}:sessions`, [{ score: data.score, value: data.value }]);
-      await this.cache.expire(`user:${userId}:sessions`, Number(process.env['REFRESH_TTL'] ?? 5184000));
+      await this.cache.expire(`user:${userId}:sessions`, Number(process.env['REFRESH_TTL'] ?? ACCESS_TTL));
     } catch (error) {
       console.log(error);
     }
@@ -31,7 +32,7 @@ class AuthRepository {
   async createSession(userId: number, sessionId: string, sessionData: SessionData): Promise<void> {
     try {
       await this.cache.set(`session:${userId}:${sessionId}`, JSON.stringify(sessionData), {
-        EX: Number(process.env['REFRESH_TTL'] ?? 5184000),
+        EX: Number(process.env['REFRESH_TTL'] ?? ACCESS_TTL),
       });
     } catch (error) {
       console.log(error);

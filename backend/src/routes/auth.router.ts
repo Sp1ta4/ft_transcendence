@@ -10,6 +10,10 @@ router.post('/refresh', container.authController.refresh);
 router.post('/login', container.authController.login);
 router.post('/logout', container.authController.logout);
 router.get('/validate', container.authController.validateToken);
+
+router.get('/oauth/google/initiate', container.authController.initiateGoogleOAuth);
+router.get('/oauth/google/callback', container.authController.handleGoogleOAuthCallback);
+
 router.get('/me', authAccess, container.authController.getCurrentUser);
 
 export default router;
