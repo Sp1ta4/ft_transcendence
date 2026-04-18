@@ -1,17 +1,6 @@
 import { ACCESS_TTL } from '../../constants/users.js';
 import type { Redis } from '../../resources/redis.js';
-
-interface SessionData {
-  tokenHash: string;
-  fingerprint: string;
-  createdAt: number;
-  absoluteExpireAt: number;
-}
-
-interface AddSessionData {
-  value: string;
-  score: number;
-}
+import type { IAddSessionData, ISessionData } from '../../types/User/IAuthorization.js';
 
 class AuthRepository {
   readonly cache: Redis;
@@ -20,7 +9,7 @@ class AuthRepository {
     this.cache = cache;
   }
 
-  async addSession(userId: number, data: AddSessionData): Promise<void> {
+  async addSession(userId: number, data: IAddSessionData): Promise<void> {
     try {
       await this.cache.zAdd(`user:${userId}:sessions`, [{ score: data.score, value: data.value }]);
       await this.cache.expire(`user:${userId}:sessions`, Number(process.env['REFRESH_TTL'] ?? ACCESS_TTL));
@@ -29,7 +18,7 @@ class AuthRepository {
     }
   }
 
-  async createSession(userId: number, sessionId: string, sessionData: SessionData): Promise<void> {
+  async createSession(userId: number, sessionId: string, sessionData: ISessionData): Promise<void> {
     try {
       await this.cache.set(`session:${userId}:${sessionId}`, JSON.stringify(sessionData), {
         EX: Number(process.env['REFRESH_TTL'] ?? ACCESS_TTL),

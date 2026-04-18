@@ -14,36 +14,9 @@ import { signAccess } from '../../utils/jwt.js';
 import type AuthRepository from './auth.repository.js';
 import type UsersRepository from '../users/users.repository.js';
 import type { User } from '../../generated/prisma/browser.js';
-
-interface RegisterData {
-  first_name: string;
-  last_name: string;
-  email: string;
-  username: string;
-  password: string;
-  birth_date: Date;
-  role: string;
-}
-
-interface LoginData {
-  email: string;
-  password: string;
-  fingerprint: string;
-}
-
-interface RefreshData {
-  userId: number;
-  refreshToken: string;
-  sessionId: string;
-  fingerprint: string;
-}
-
-interface StoredSession {
-  tokenHash: string;
-  fingerprint: string;
-  createdAt: number;
-  absoluteExpireAt: number;
-}
+import type { IRegisterData, ILoginData, IRefreshData, IStoredSession } from '../../types/User/IAuthorization.js';
+import { strategies } from './utils.js';
+import crypto from 'crypto';
 
 class AuthService {
   private repository: AuthRepository;
@@ -54,7 +27,7 @@ class AuthService {
     this.usersRepository = usersRepository;
   }
 
-  async register(userData: RegisterData): Promise<void> {
+  async register(userData: IRegisterData): Promise<void> {
     const code = Math.random().toString(36).substring(2, 8);
     userData.password = await hashPassword(userData.password);
     await this.repository.cache.set(
@@ -72,7 +45,7 @@ class AuthService {
     if (!raw) {
       throw new HttpError(StatusCodes.BAD_REQUEST, CONFIRMATION_CODE_INVALID_OR_EXPIRED);
     }
-    const userData = JSON.parse(raw) as RegisterData & { code: string };
+    const userData = JSON.parse(raw) as IRegisterData & { code: string };
 
     if (userData.code !== confirmationCode) {
       throw new HttpError(StatusCodes.BAD_REQUEST, CONFIRMATION_CODE_INVALID_OR_EXPIRED);
@@ -85,7 +58,7 @@ class AuthService {
     await this.repository.cache.del(`${CONFIRM_CODE_REDIS_TAG}:${email}`);
   }
 
-  async login({ email, password, fingerprint }: LoginData) {
+  async login({ email, password, fingerprint }: ILoginData) {
     const user = await this.usersRepository.getUserByEmail(email);
 
     if (!user || !user.password_hash || !(await comparePassword(password, user.password_hash))) {
@@ -98,12 +71,12 @@ class AuthService {
     return { accessToken, refreshToken, sessionId, user };
   }
 
-  async refresh({ userId, refreshToken, sessionId, fingerprint }: RefreshData) {
+  async refresh({ userId, refreshToken, sessionId, fingerprint }: IRefreshData) {
     const stored = await this.usersRepository.getCachedUser(userId, sessionId);
     if (!stored) {
       throw new HttpError(StatusCodes.BAD_REQUEST, INVALID_REFRESH_TOKEN);
     }
-    const session = JSON.parse(stored) as StoredSession;
+    const session = JSON.parse(stored) as IStoredSession;
     const sentHash = sha256Hex(refreshToken);
 
     if (moment().unix() >= session.absoluteExpireAt) {
@@ -140,7 +113,7 @@ class AuthService {
     return this.usersRepository.getUserById(id);
   }
 
-  private async addNewSession(userId: number, fingerprint: string) {
+  async addNewSession(userId: number, fingerprint: string) {
     const sessionsCount = await this.repository.getSessions(userId);
 
     if (sessionsCount >= MAX_DEVICES) {
@@ -169,26 +142,6 @@ class AuthService {
     return { sessionId, refreshToken };
   }
 
-  generateAuthUrl(state: string): string {
-    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
-    if (!clientId || !redirectUri) {
-      throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
-    }
-
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope: 'openid email profile',
-      state,
-      access_type: 'offline',
-      prompt: 'consent',
-    });
-
-    return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-  }
-
   async exchangeCodeForTokens(code: string): Promise<{ id_token: string; access_token: string }> {
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -197,23 +150,37 @@ class AuthService {
         code,
         client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
         client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
-        redirect_uri: process.env.GOOGLE_OAUTH_REDIRECT_URI!,
+        redirect_uri: `${process.env.PROVIDER_OAUTH_REDIRECT_URI}/google`,
         grant_type: 'authorization_code',
       }),
     });
-
     if (!response.ok) {
+      const error = await response.json();
+      console.error('Token exchange error:', error);
       throw new HttpError(StatusCodes.BAD_GATEWAY, 'Failed to exchange code for tokens');
     }
 
     return response.json();
   }
 
-  async getUserInfoFromToken(idToken: string): Promise<{ sub: string; email: string; name: string; picture: string }> {
+  getUserInfoFromToken(idToken: string): { 
+    email: string; 
+    name: string; 
+    avatar: string; 
+    providerUserId: string; 
+    provider: string 
+  } {
     const payload = JSON.parse(
       Buffer.from(idToken.split('.')[1], 'base64url').toString()
     );
-    return payload;
+
+    return {
+      email: payload.email,
+      name: payload.name ?? `${payload.given_name ?? ''} ${payload.family_name ?? ''}`.trim(),
+      avatar: payload.picture ?? '',
+      providerUserId: payload.sub,
+      provider: GOOGLE_OAUTH_PROVIDER,
+    };
   }
 
   async upsertUserFromOAuth(data: {
@@ -226,7 +193,35 @@ class AuthService {
     const user = this.usersRepository.upsertUserFromOAuth(data);
     return user;
   }
+  
+  generateAuthUrl(provider: string, state: string): string {
+    const strategy = strategies[provider];
+    if (!strategy) {
+      throw new HttpError(StatusCodes.BAD_REQUEST, 'Unsupported OAuth provider');
+    }
+    return strategy.buildAuthUrl(state);
+  }
 
+  generateOAuthState(fingerprint: string): string {
+    const jwtSecret = process.env.ACCESS_SECRET;
+    if (!jwtSecret) {        
+      throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
+    }
+    const nonce = crypto.randomBytes(16).toString("hex");
+    const hmac = crypto
+                  .createHmac("sha256", jwtSecret)
+                  .update(nonce)
+                  .digest("hex");
+    const payload = {
+      nonce,
+      hmac,
+      fingerprint,
+      iat: Date.now(), // issued at
+    };
+    const state = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    return state;
+  }
 }
+
 
 export default AuthService;

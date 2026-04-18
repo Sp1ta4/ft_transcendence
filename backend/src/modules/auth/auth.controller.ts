@@ -4,12 +4,13 @@ import validateSchema from '../../utils/validateSchema.js';
 import { CONFIRM_YOUR_EMAIL, SUCCESSFULLY_REGISTERED } from '../../constants/success_messages.js';
 import { StatusCodes } from 'http-status-codes';import Joi from 'joi';
 import DataValidationError from '../../utils/error/DataValidationError.js';
-import { verifyAccess } from '../../utils/jwt.js';
+import { signAccess, verifyAccess } from '../../utils/jwt.js';
 import type AuthService from './auth.service.js';
 import type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody } from '../../types/User/IAuthorization.js';
 import { EMAIL_ALREADY_IN_USE, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_TOKEN_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
 import crypto from 'crypto';
 import HttpError from '../../utils/error/HttpError.js';
+import { GOOGLE_OAUTH_PROVIDER } from '../../constants/users.js';
 
 class AuthController {
   private service: AuthService;
@@ -189,24 +190,14 @@ class AuthController {
     });
   }
 
-  initiateGoogleOAuth = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  initiateGoogleOAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const jwtSecret = process.env.JWT_SECRET;
-        if (!jwtSecret) {
-          throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
-        }
-        const nonce = crypto.randomBytes(16).toString("hex");
-        const hmac = crypto
-              .createHmac("sha256", jwtSecret)
-              .update(nonce)
-              .digest("hex");
+        const { fingerprint } = validateSchema(req.body, Joi.object({
+          fingerprint: Joi.string().uuid().required(),
+        }));
 
-        const payload = {
-          nonce,
-          hmac,
-          iat: Date.now(), // issued at
-        };
-        const state = Buffer.from(JSON.stringify(payload)).toString('base64url'); const redirectUrl = this.service.generateAuthUrl(state);
+        const state = this.service.generateOAuthState(fingerprint);
+        const redirectUrl = this.service.generateAuthUrl(GOOGLE_OAUTH_PROVIDER, state);
         res.status(StatusCodes.TEMPORARY_REDIRECT).redirect(redirectUrl);
     } catch (err) {
         next(err);
@@ -215,25 +206,23 @@ class AuthController {
 
   handleGoogleOAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const jwtSecret = process.env.JWT_SECRET;
+      const jwtSecret = process.env.ACCESS_SECRET;
       if (!jwtSecret) {
         throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
       }
-
       const { code, state } = req.query;
-
       if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
         throw new HttpError(StatusCodes.BAD_REQUEST, 'Missing or invalid code/state');
       }
 
-      let parsedState: { nonce: string; hmac: string; iat: number };
+      let parsedState: { nonce: string; hmac: string; iat: number, fingerprint: string };
       try {
         parsedState = JSON.parse(Buffer.from(state, 'base64url').toString());
       } catch {
         throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state format');
       }
 
-      const { nonce, hmac, iat } = parsedState;
+      const { nonce, hmac, iat, fingerprint } = parsedState;
 
       if (!iat || Date.now() - iat > 10 * 60 * 1000) {
         throw new HttpError(StatusCodes.BAD_REQUEST, 'State expired');
@@ -252,13 +241,14 @@ class AuthController {
       }
 
       const tokens = await this.service.exchangeCodeForTokens(code);
-
-      const userInfo = await this.service.getUserInfoFromToken(tokens.id_token);
-
+      console.log('Received tokens:', tokens);
+      const userInfo = this.service.getUserInfoFromToken(tokens.id_token);
       const user = await this.service.upsertUserFromOAuth(userInfo);
-
+      const { sessionId, refreshToken } = await this.service.addNewSession(user.id, fingerprint);
       const accessToken = signAccess(user.id, sessionId);
 
+      this.setRefreshCookie(res, refreshToken);
+      this.setSessionIdCookie(res, sessionId);
       res.status(StatusCodes.OK).json({ accessToken });
     } catch (err) {
       next(err);

@@ -40,4 +40,46 @@ interface ICreateUserData {
   birth_date: Date;
 }
 
-export type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody, ICreateUserData };
+interface ISessionData {
+  tokenHash: string;
+  fingerprint: string;
+  createdAt: number;
+  absoluteExpireAt: number;
+}
+
+interface IAddSessionData {
+  value: string;
+  score: number;
+}
+
+interface IRegisterData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  username: string;
+  password: string;
+  birth_date: Date;
+  role: string;
+}
+
+interface ILoginData {
+  email: string;
+  password: string;
+  fingerprint: string;
+}
+
+interface IRefreshData {
+  userId: number;
+  refreshToken: string;
+  sessionId: string;
+  fingerprint: string;
+}
+
+interface IStoredSession {
+  tokenHash: string;
+  fingerprint: string;
+  createdAt: number;
+  absoluteExpireAt: number;
+}
+
+export type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody, ICreateUserData, ISessionData, IAddSessionData, IRegisterData, ILoginData, IRefreshData, IStoredSession };
