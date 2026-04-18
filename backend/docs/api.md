@@ -191,6 +191,73 @@ X-User-Id: 1
 
 ---
 
+### POST `/auth/oauth/initiate/google` and `/auth/oauth/initiate/github`
+
+Starts the OAuth 2.0 flow. Generates a signed `state` and redirects the client to the provider's authorization page.
+
+**Request body:**
+
+```json
+{
+  "fingerprint": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fingerprint` | UUID | Unique device/browser identifier — embedded in state, used to bind the resulting session |
+
+**Response:** `307 Temporary Redirect` — Location header points to the provider OAuth URL with `state` query param.
+
+**Errors:** `400` — missing or invalid fingerprint.
+
+---
+
+### GET `/auth/oauth/callback/google`
+
+Handles the redirect from Google after user consent.
+
+**Query params (set by Google):**
+
+| Param | Description |
+|-------|-------------|
+| `code` | Authorization code to exchange for tokens |
+| `state` | Signed state blob generated during initiate |
+
+**State validation:**
+1. Decodes `base64url` → `{ nonce, hmac, fingerprint, iat }`.
+2. Verifies HMAC-SHA256 signature (constant-time comparison).
+3. Rejects if older than 10 minutes.
+
+**On success:** exchanges `code` for Google tokens, extracts user info from `id_token` JWT, upserts the user in the database, creates a session.
+
+**Response `200`:**
+```json
+{ "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
+```
+
+Cookies `refreshToken` and `sessionId` are also set (same as `/auth/login`).
+
+**Errors:** `400` — invalid/missing code or state, expired state, invalid signature. `502` — Google token exchange failed.
+
+---
+
+### GET `/auth/oauth/callback/github`
+
+Handles the redirect from GitHub after user consent. Identical flow to the Google callback with provider-specific differences:
+- Tokens are fetched from `https://github.com/login/oauth/access_token`.
+- User info is fetched from `https://api.github.com/user`.
+- If email is not public, a secondary request to `https://api.github.com/user/emails` retrieves the primary verified email.
+
+**Response `200`:**
+```json
+{ "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
+```
+
+**Errors:** same as Google callback.
+
+---
+
 ### GET `/auth/me`
 
 Returns the profile of the currently authenticated user. Requires `req.userId` to be set by an upstream auth middleware.

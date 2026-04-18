@@ -4,3 +4,4 @@ export const CONFIRM_CODE_REDIS_TAG = 'email_confirmation_code';
 export const MAX_DEVICES = 3;
 export const ACCESS_TTL = 5184000;
 export const GOOGLE_OAUTH_PROVIDER = 'google';
+export const GITHUB_OAUTH_PROVIDER = 'github';

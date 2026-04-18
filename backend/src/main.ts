@@ -35,7 +35,7 @@ async function bootstrap(): Promise<void> {
 
   app.listen(port, () => {
     _debug(`Listening on port ${port}`);
-    console.log(`🚀 Server is running on port ${port}`);
+    console.log(`Server is running on port ${port}`);
   });
 }
 

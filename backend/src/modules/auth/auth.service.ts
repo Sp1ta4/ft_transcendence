@@ -3,6 +3,7 @@ import {
   CONFIRM_CODE_REDIS_TAG,
   MAX_DEVICES,
   GOOGLE_OAUTH_PROVIDER,
+  GITHUB_OAUTH_PROVIDER,
 } from '../../constants/users.js';
 import { CONFIRMATION_CODE_INVALID_OR_EXPIRED, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_REFRESH_TOKEN, SESSION_EXPIRED, USER_CREATION_FAILED, USER_NOT_FOUND_OR_INVALID_CRED } from '../../constants/error_messages.js';
 import HttpError from '../../utils/error/HttpError.js';
@@ -142,7 +143,7 @@ class AuthService {
     return { sessionId, refreshToken };
   }
 
-  async exchangeCodeForTokens(code: string): Promise<{ id_token: string; access_token: string }> {
+  async exchangeCodeForGoogleTokens(code: string): Promise<{ id_token: string; access_token: string }> {
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -162,8 +163,31 @@ class AuthService {
 
     return response.json();
   }
+  
+  async exchangeCodeForGithubTokens(code: string): Promise<{ id_token: string; access_token: string }> {
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GITHUB_OAUTH_CLIENT_ID!,
+        client_secret: process.env.GITHUB_OAUTH_CLIENT_SECRET!,
+        redirect_uri: `${process.env.PROVIDER_OAUTH_REDIRECT_URI}/github`,
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Token exchange error:', error);
+      throw new HttpError(StatusCodes.BAD_GATEWAY, 'Failed to exchange code for tokens');
+    }
 
-  getUserInfoFromToken(idToken: string): { 
+    return response.json();
+  }
+
+  getUserInfoFromGoogleToken(idToken: string): { 
     email: string; 
     name: string; 
     avatar: string; 
@@ -183,7 +207,42 @@ class AuthService {
     };
   }
 
-  async upsertUserFromOAuth(data: {
+  async getUserInfoFromGithub(accessToken: string) {
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/vnd.github+json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new HttpError(StatusCodes.BAD_GATEWAY, 'Failed to get GitHub user info');
+    }
+
+    const payload = await response.json();
+
+    let email = payload.email;
+    if (!email) {
+      const emailsResponse = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/vnd.github+json',
+        },
+      });
+      const emails = await emailsResponse.json();
+      email = emails.find((e: any) => e.primary && e.verified)?.email ?? '';
+    }
+
+    return {
+      email,
+      name: payload.name ?? payload.login,
+      avatar: payload.avatar_url ?? '',
+      providerUserId: String(payload.id),
+      provider: GITHUB_OAUTH_PROVIDER,
+    };
+  }
+  
+ async upsertUserFromOAuth(data: {
     email: string;
     name: string;
     avatar: string;
@@ -193,7 +252,7 @@ class AuthService {
     const user = this.usersRepository.upsertUserFromOAuth(data);
     return user;
   }
-  
+
   generateAuthUrl(provider: string, state: string): string {
     const strategy = strategies[provider];
     if (!strategy) {

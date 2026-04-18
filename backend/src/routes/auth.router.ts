@@ -11,8 +11,11 @@ router.post('/login', container.authController.login);
 router.post('/logout', container.authController.logout);
 router.get('/validate', container.authController.validateToken);
 
-router.post('/oauth/initiate/google', container.authController.initiateGoogleOAuth);
+router.post('/oauth/initiate/google', container.authController.initiateOAuth);
 router.get('/oauth/callback/google', container.authController.handleGoogleOAuthCallback);
+
+router.post('/oauth/initiate/github', container.authController.initiateOAuth);
+router.get('/oauth/callback/github', container.authController.handleGithubOAuthCallback);
 
 router.get('/me', authAccess, container.authController.getCurrentUser);
 

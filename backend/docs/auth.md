@@ -208,3 +208,93 @@ const match = await bcrypt.compare(plainPassword, storedHash);
 ```
 
 `password_hash` in the `users` table is nullable — OAuth users created without a password will have `NULL`.
+
+---
+
+## OAuth 2.0 (Google & GitHub)
+
+OAuth is implemented without Passport.js using a custom Strategy pattern (`src/modules/auth/utils.ts`).
+
+### Supported providers
+
+| Constant | Value | Scopes |
+|----------|-------|--------|
+| `GOOGLE_OAUTH_PROVIDER` | `"google"` | `openid email profile` |
+| `GITHUB_OAUTH_PROVIDER` | `"github"` | `read:user user:email` |
+
+### Initiate Flow
+
+```
+Client                          Server
+  │                               │
+  │── POST /auth/oauth/initiate/:provider ──▶
+  │   { fingerprint: uuid }       │
+  │                               │── generateOAuthState(fingerprint):
+  │                               │     nonce = randomBytes(16)
+  │                               │     hmac  = HMAC-SHA256(nonce, ACCESS_SECRET)
+  │                               │     state = base64url({ nonce, hmac, fingerprint, iat })
+  │                               │
+  │                               │── strategy.buildAuthUrl(state)
+  │◀── 307 Redirect to provider ──│
+```
+
+The `state` parameter provides CSRF protection:
+- `hmac` is verified server-side on callback.
+- `iat` is checked — state expires after **10 minutes**.
+- `fingerprint` is embedded to bind the session to the initiating device.
+
+### Callback Flow
+
+```
+Provider                        Server                        DB / Redis
+  │                               │                             │
+  │── GET /auth/oauth/callback/:provider?code=...&state=... ──▶│
+  │                               │── base64url.decode(state)   │
+  │                               │── verify HMAC signature     │
+  │                               │── check iat (10 min TTL)    │
+  │                               │                             │
+  │                               │── exchangeCodeForTokens()   │
+  │                               │   POST provider/token ──────▶ Provider API
+  │                               │◀── tokens ──────────────────│
+  │                               │                             │
+  │                               │── getUserInfo():            │
+  │                               │   Google: decode id_token JWT
+  │                               │   GitHub: GET /user (+ /user/emails if email hidden)
+  │                               │                             │
+  │                               │── upsertUserFromOAuth():    │
+  │                               │   prisma.oAuthAccount.upsert()
+  │                               │   - exists → update avatar  │
+  │                               │   - new    → create User + OAuthAccount
+  │                               │                             │
+  │                               │── addNewSession(userId, fingerprint)
+  │                               │── signAccess(userId, sessionId)
+  │                               │                             │
+  │◀── 200 { accessToken } ───────│                             │
+  │    cookie: refreshToken       │                             │
+  │    cookie: sessionId          │                             │
+```
+
+### upsertUserFromOAuth
+
+Located in `UsersRepository`. Key behaviour:
+- Lookup key: `(provider, provider_user_id)` — unique constraint on `oauth_accounts`.
+- **Existing account** → updates `avatar_url` on the linked user.
+- **New account** → creates a `User` record (no `password_hash`) and an `OAuthAccount` record.
+- Username is auto-generated from the email local part; collisions get a `_N` suffix.
+
+### State Validation (Callback)
+
+```typescript
+// 1. Decode
+const { nonce, hmac, iat, fingerprint } = JSON.parse(
+  Buffer.from(state, 'base64url').toString()
+);
+
+// 2. Check TTL
+if (Date.now() - iat > 10 * 60 * 1000) throw 400 'State expired';
+
+// 3. Verify HMAC (constant-time)
+const expected = crypto.createHmac('sha256', ACCESS_SECRET).update(nonce).digest('hex');
+if (!crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expected, 'hex')))
+  throw 400 'Invalid state signature';
+```

@@ -10,7 +10,7 @@ import type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody
 import { EMAIL_ALREADY_IN_USE, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_TOKEN_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
 import crypto from 'crypto';
 import HttpError from '../../utils/error/HttpError.js';
-import { GOOGLE_OAUTH_PROVIDER } from '../../constants/users.js';
+import { GITHUB_OAUTH_PROVIDER, GOOGLE_OAUTH_PROVIDER } from '../../constants/users.js';
 
 class AuthController {
   private service: AuthService;
@@ -190,14 +190,15 @@ class AuthController {
     });
   }
 
-  initiateGoogleOAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  initiateOAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const { fingerprint } = validateSchema(req.body, Joi.object({
+        const { fingerprint, provider } = validateSchema(req.body, Joi.object({
           fingerprint: Joi.string().uuid().required(),
+          provider: Joi.string().valid(GOOGLE_OAUTH_PROVIDER, GITHUB_OAUTH_PROVIDER).required(),
         }));
 
         const state = this.service.generateOAuthState(fingerprint);
-        const redirectUrl = this.service.generateAuthUrl(GOOGLE_OAUTH_PROVIDER, state);
+        const redirectUrl = this.service.generateAuthUrl(provider, state);
         res.status(StatusCodes.TEMPORARY_REDIRECT).redirect(redirectUrl);
     } catch (err) {
         next(err);
@@ -240,9 +241,58 @@ class AuthController {
         throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state signature');
       }
 
-      const tokens = await this.service.exchangeCodeForTokens(code);
-      console.log('Received tokens:', tokens);
-      const userInfo = this.service.getUserInfoFromToken(tokens.id_token);
+      const tokens = await this.service.exchangeCodeForGoogleTokens(code);
+      const userInfo = this.service.getUserInfoFromGoogleToken(tokens.id_token);
+      const user = await this.service.upsertUserFromOAuth(userInfo);
+      const { sessionId, refreshToken } = await this.service.addNewSession(user.id, fingerprint);
+      const accessToken = signAccess(user.id, sessionId);
+
+      this.setRefreshCookie(res, refreshToken);
+      this.setSessionIdCookie(res, sessionId);
+      res.status(StatusCodes.OK).json({ accessToken });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  handleGithubOAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const jwtSecret = process.env.ACCESS_SECRET;
+      if (!jwtSecret) {
+        throw new HttpError(StatusCodes.INTERNAL_SERVER_ERROR, INTERNAL_SERVER_ERROR_MESSAGE);
+      }
+      const { code, state } = req.query;
+      if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Missing or invalid code/state');
+      }
+
+      let parsedState: { nonce: string; hmac: string; iat: number, fingerprint: string };
+      try {
+        parsedState = JSON.parse(Buffer.from(state, 'base64url').toString());
+      } catch {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state format');
+      }
+
+      const { nonce, hmac, iat, fingerprint } = parsedState;
+
+      if (!iat || Date.now() - iat > 10 * 60 * 1000) {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'State expired');
+      }
+
+      const expectedHmac = crypto
+        .createHmac('sha256', jwtSecret)
+        .update(nonce)
+        .digest('hex');
+
+      if (
+        hmac.length !== expectedHmac.length ||
+        !crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expectedHmac, 'hex'))
+      ) {
+        throw new HttpError(StatusCodes.BAD_REQUEST, 'Invalid state signature');
+      }
+
+      const tokens = await this.service.exchangeCodeForGithubTokens(code);
+      const userInfo = await this.service.getUserInfoFromGithub(tokens.access_token);
       const user = await this.service.upsertUserFromOAuth(userInfo);
       const { sessionId, refreshToken } = await this.service.addNewSession(user.id, fingerprint);
       const accessToken = signAccess(user.id, sessionId);
