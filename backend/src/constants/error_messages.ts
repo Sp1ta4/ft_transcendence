@@ -1,0 +1,13 @@
+export const INTERNAL_SERVER_ERROR_MESSAGE = 'Internal server error';
+export const DATA_VALIDATION_ERROR_MESSAGE = 'Data validation error';
+export const AUTHENTICATION_ERROR = 'Authentication error';
+export const AUTHORIZATION_ERROR = 'Authorization error';
+export const UNAUTHORIZED_ERROR = 'Unauthorized';
+export const INVALID_TOKEN_ERROR = 'Invalid token';
+export const NOT_FOUND_ERROR = 'Resource not found';
+export const USER_NOT_FOUND_OR_INVALID_CRED = 'User with this email is not found or invalid password';
+export const EMAIL_ALREADY_IN_USE = 'Email is already in use';
+export const CONFIRMATION_CODE_INVALID_OR_EXPIRED = 'Confirmation code expired or invalid';
+export const USER_CREATION_FAILED = 'User creation failed';
+export const INVALID_REFRESH_TOKEN = 'Invalid refresh token';
+export const SESSION_EXPIRED = 'Session expired, please login again';

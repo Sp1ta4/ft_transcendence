@@ -1,0 +1,49 @@
+
+model Conversation {
+  id         Int      @id @default(autoincrement())
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversation_id Int
+  user_id         Int
+  last_read_at    DateTime? @db.Timestamptz
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([conversation_id, user_id])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id              Int       @id @default(autoincrement())
+  conversation_id Int
+  sender_id       Int
+  content         String?   // NULL when message contains only media
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  deleted_at      DateTime? @db.Timestamptz
+
+  conversation Conversation  @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  sender       User          @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+  media        MessageMedia[]
+
+  @@map("messages")
+}
+
+model MessageMedia {
+  id         Int      @id @default(autoincrement())
+  message_id Int
+  url        String
+  type       String   // 'image' | 'video'
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  message Message @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  @@map("message_media")
+}
