@@ -51,6 +51,17 @@ class AuthRepository {
     }
   }
 
+  async saveTemp2FASecret(userId: number, secret: string): Promise<void> {
+    await this.cache.set(`user:${userId}:temp-2fa-secret`, secret, { EX: 60 * 5 });
+  }
+
+  async getTemp2FASecret(userId: number): Promise<string | null> {
+    return this.cache.get(`user:${userId}:temp-2fa-secret`);
+  }
+  
+  async deleteTemp2FASecret(userId: number): Promise<void> {
+    await this.cache.del(`user:${userId}:temp-2fa-secret`);
+  }
 }
 
 export default AuthRepository;

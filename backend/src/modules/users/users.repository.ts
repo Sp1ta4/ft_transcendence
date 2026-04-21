@@ -116,6 +116,24 @@ class UsersRepository {
     while (suffixes.has(`${base}_${i}`)) i++;
     return `${base}_${i}`;
   }
+
+  async updateUser(id: number, data: Partial<{
+    first_name: string;
+    last_name: string;
+    email: string;
+    username: string;
+    password_hash: string;
+    role: string;
+    avatar_url: string;
+    birth_date: Date;
+    two_factor_enabled: boolean;
+    two_factor_secret: string | null;
+  }>) {
+    return this.db.user.update({
+      where: { id },
+      data,
+    });
+  }
 }
 
 export default UsersRepository;

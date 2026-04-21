@@ -16,8 +16,9 @@ import type AuthRepository from './auth.repository.js';
 import type UsersRepository from '../users/users.repository.js';
 import type { User } from '../../generated/prisma/browser.js';
 import type { IRegisterData, ILoginData, IRefreshData, IStoredSession } from '../../types/User/IAuthorization.js';
-import { strategies } from './utils.js';
+import { strategies, TwoFactorAuthentication } from './utils.js';
 import crypto from 'crypto';
+// import { sendVerificationEmail } from '../../email/mailer.js';
 
 class AuthService {
   private repository: AuthRepository;
@@ -36,6 +37,10 @@ class AuthService {
       JSON.stringify({ ...userData, code }),
       { EX: USER_EMAIL_CONFIRMATION_CODE_TTL }
     );
+    //TODO: register domain and open code
+    // sendVerificationEmail(userData.email, code).catch((err) => {
+    //   console.error('Failed to send verification email:', err);
+    // });
     console.log('##########\n');
     console.log(`Confirmation code for ${userData.email} sended: ${code}`);
     console.log('\n##########');
@@ -279,6 +284,27 @@ class AuthService {
     };
     const state = Buffer.from(JSON.stringify(payload)).toString('base64url');
     return state;
+  }
+
+  generateTotpSecret(): string {
+    return TwoFactorAuthentication.generateTotpSecret();
+  }
+
+  saveTemp2FASecret(userId: number, secret: string): Promise<void> {
+    return this.repository.saveTemp2FASecret(userId, secret);
+  }
+
+  generateQrCode(email: string, secret: string): Promise<string> {
+    return TwoFactorAuthentication.generateQrCode(email, secret);
+  }
+
+  async get2FATemplSecret(userId: number): Promise<string | null> {
+    return await this.repository.getTemp2FASecret(userId);
+  }
+
+  async update2FASecret(userId: number, secret: string, enabled: boolean): Promise<void> {
+    await this.usersRepository.updateUser(userId, { two_factor_secret: secret, two_factor_enabled: enabled });
+    await this.repository.deleteTemp2FASecret(userId);
   }
 }
 

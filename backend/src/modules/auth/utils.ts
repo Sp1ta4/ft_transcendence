@@ -1,3 +1,6 @@
+import { generateSecret, generateURI, verifySync } from 'otplib';
+import qrcode from 'qrcode';
+
 interface OAuthStrategy {
   buildAuthUrl(state: string): string;
 }
@@ -34,4 +37,19 @@ const strategies: Record<string, OAuthStrategy> = {
   github: new GitHubOAuthStrategy(),
 };
 
-export { strategies };
+class TwoFactorAuthentication {
+  generateTotpSecret(): string {
+    return generateSecret();
+  }
+
+  async generateQrCode(email: string, secret: string): Promise<string> {
+    const otpauth = generateURI({ issuer: 'Transcendence', label: email, secret });
+    return qrcode.toDataURL(otpauth);
+  }
+
+  verifyTotpCode(secret: string, code: string): boolean {
+    return verifySync({ token: code, secret }).valid;
+  }
+}
+const twoAF = new TwoFactorAuthentication();
+export { strategies, twoAF as TwoFactorAuthentication };

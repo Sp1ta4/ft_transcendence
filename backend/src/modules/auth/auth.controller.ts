@@ -7,10 +7,11 @@ import DataValidationError from '../../utils/error/DataValidationError.js';
 import { signAccess, verifyAccess } from '../../utils/jwt.js';
 import type AuthService from './auth.service.js';
 import type { IRegisterBody, IConfirmBody, ILoginBody, IRefreshBody, ILogoutBody } from '../../types/User/IAuthorization.js';
-import { EMAIL_ALREADY_IN_USE, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_TOKEN_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
+import { EMAIL_ALREADY_IN_USE, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_TOKEN_ERROR, NOT_FOUND_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
 import crypto from 'crypto';
 import HttpError from '../../utils/error/HttpError.js';
 import { GITHUB_OAUTH_PROVIDER, GOOGLE_OAUTH_PROVIDER } from '../../constants/users.js';
+import { TwoFactorAuthentication } from './utils.js';
 
 class AuthController {
   private service: AuthService;
@@ -300,6 +301,68 @@ class AuthController {
       this.setRefreshCookie(res, refreshToken);
       this.setSessionIdCookie(res, sessionId);
       res.status(StatusCodes.OK).json({ accessToken });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  setup2FA = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const secret = this.service.generateTotpSecret();
+      const userId = Number(res.locals.userId);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        res.status(StatusCodes.UNAUTHORIZED).json({ error: UNAUTHORIZED_ERROR });
+        return;
+      }
+      await this.service.saveTemp2FASecret(userId, secret);
+      const userEmail = await this.service.getUserById(userId).then(user => user?.email);
+      if (!userEmail) {
+        throw new HttpError(StatusCodes.NOT_FOUND, NOT_FOUND_ERROR);
+      }
+      const qrCode = await this.service.generateQrCode(userEmail, secret);
+      res.status(StatusCodes.OK).json({ qrCode });
+    }
+    catch (err) {
+        next(err);
+    }
+  }
+
+  enable2FA = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const validated = validateSchema(req.body, Joi.object({
+        code: Joi.string().length(6).required(),
+      }));
+      const { code } = validated;
+      const userId = Number(res.locals.userId);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        res.status(StatusCodes.UNAUTHORIZED).json({ error: UNAUTHORIZED_ERROR });
+        return;
+      }
+      const tempSecret = await this.service.get2FATemplSecret(userId);
+      if (!tempSecret) {
+        throw new HttpError(StatusCodes.GONE, 'No 2FA setup in progress');
+      }
+      const isValid = TwoFactorAuthentication.verifyTotpCode(tempSecret, code);
+      if (!isValid) {
+        res.status(StatusCodes.BAD_REQUEST).json({ error: 'Invalid 2FA code' });
+        return;
+      }
+      await this.service.update2FASecret(userId, tempSecret, true);
+      res.status(StatusCodes.OK).json({ message: '2FA enabled successfully' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  disable2FA = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = Number(res.locals.userId);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        res.status(StatusCodes.UNAUTHORIZED).json({ error: UNAUTHORIZED_ERROR });
+        return;
+      }
+      await this.service.update2FASecret(userId, '', false);
+      res.status(StatusCodes.OK).json({ message: '2FA disabled successfully' });
     } catch (err) {
       next(err);
     }
