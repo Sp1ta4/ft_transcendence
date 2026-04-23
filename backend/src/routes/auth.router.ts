@@ -11,6 +11,8 @@ router.post('/login', container.authController.login);
 router.post('/logout', container.authController.logout);
 router.get('/validate', container.authController.validateToken);
 
+router.post('/reset-password', container.authController.resetPassword);
+
 router.post('/oauth/initiate/google', container.authController.initiateOAuth);
 router.get('/oauth/callback/google', container.authController.handleGoogleOAuthCallback);
 
@@ -20,7 +22,5 @@ router.delete('/2fa/disable', authAccess, container.authController.disable2FA);
 
 router.post('/oauth/initiate/github', container.authController.initiateOAuth);
 router.get('/oauth/callback/github', container.authController.handleGithubOAuthCallback);
-
-router.get('/me', authAccess, container.authController.getCurrentUser);
 
 export default router;

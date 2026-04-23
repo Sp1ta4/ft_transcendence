@@ -36,12 +36,38 @@ class UsersRepository {
     return this.cache.get(`session:${userId}:${sessionId}`);
   }
 
-  async getUsersList() {
-    return this.db.user.findMany();
+  async getUserById(id: number) {
+    return this.db.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        username: true,
+        avatar_url: true,
+        bio: true,
+        role: true,
+        is_verified: true,
+        is_online: true,
+        last_seen: true,
+        birth_date: true,
+        created_at: true,
+        _count: {
+          select: {
+            followers: true,
+            following: true,
+          },
+        },
+      },
+    });
   }
 
-  async getUserById(id: number) {
-    return this.db.user.findUnique({ where: { id } });
+  async getUserEmailById(id: number): Promise<string | null> {
+    const user = await this.db.user.findUnique({
+      where: { id },
+      select: { email: true },
+    });
+    return user ? user.email : null;
   }
 
   async getUserByOAuthId(providerUserId: string, provider: string) {
@@ -132,6 +158,98 @@ class UsersRepository {
     return this.db.user.update({
       where: { id },
       data,
+    });
+  }
+
+  async areFriends(userId: number, otherId: number): Promise<boolean> {
+    const count = await this.db.follow.count({
+      where: {
+        OR: [
+          { follower_id: userId, following_id: otherId },
+          { follower_id: otherId, following_id: userId },
+        ],
+      },
+    });
+    return count === 2;
+  }
+
+  async getUserFollowers(id: number) {
+    return this.db.follow.findMany({
+      where: { following_id: id },
+      include: {
+        follower: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            username: true,
+            avatar_url: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getUserFollowing(id: number) {
+    return this.db.follow.findMany({
+      where: { follower_id: id },
+      include: {
+        following: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            username: true,
+            avatar_url: true,
+          },
+        },
+      },
+    });
+  }
+
+  async followUser(userId: number, targetUserId: number) {
+    return this.db.follow.create({
+      data: {
+        follower_id: userId,
+        following_id: targetUserId,
+      },
+    });
+  }
+
+  async unfollowUser(userId: number, targetUserId: number) {
+    return this.db.follow.delete({
+      where: {
+        follower_id_following_id: {
+          follower_id: userId,
+          following_id: targetUserId,
+        },
+      },
+    });
+  }
+
+  async updateUserProfile(userId: number, profileData: Partial<{
+    first_name: string;
+    last_name: string;
+    username: string;
+    avatar_url: string | null;
+    bio: string;
+  }>) {
+    return this.db.user.update({
+      where: { id: userId },
+      data: profileData,
+    });
+  }
+
+  async getUsersList(query: string, limit: number) {
+    return this.db.user.findMany({
+      where: {
+        OR: [
+          { username: { contains: query, mode: 'insensitive' } },
+          { first_name: { contains: query, mode: 'insensitive' } },
+          { last_name: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      take: limit,
     });
   }
 }
