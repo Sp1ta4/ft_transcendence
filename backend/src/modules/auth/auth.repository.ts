@@ -1,11 +1,17 @@
+import type { PrismaClient } from '@prisma/client';
 import { ACCESS_TTL } from '../../constants/users.js';
 import type { Redis } from '../../resources/redis.js';
 import type { IAddSessionData, ISessionData } from '../../types/User/IAuthorization.js';
+import type { User } from '../../generated/prisma/client.js';
+import { StatusCodes } from 'http-status-codes/build/cjs/status-codes.js';
+import HttpError from '../../utils/error/HttpError.js';
 
 class AuthRepository {
   readonly cache: Redis;
+  private db: PrismaClient;
 
-  constructor(_db: unknown, cache: Redis) {
+  constructor(db: PrismaClient, cache: Redis) {
+    this.db = db;
     this.cache = cache;
   }
 
@@ -61,6 +67,24 @@ class AuthRepository {
   
   async deleteTemp2FASecret(userId: number): Promise<void> {
     await this.cache.del(`user:${userId}:temp-2fa-secret`);
+  }
+
+  async getUserById(id: number): Promise<User | null> {
+   return this.db.user.findUnique({ where: { id } });
+  }
+
+   async resetPassword(userId: number, passwordHash: string) {
+    const user = await this.db.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new HttpError(StatusCodes.NOT_FOUND, 'User not found');
+    };
+    
+    this.db.user.update({
+      where: { id: userId },
+      data: {
+        password_hash: passwordHash,
+      },
+    });
   }
 }
 

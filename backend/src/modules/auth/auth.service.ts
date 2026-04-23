@@ -5,7 +5,7 @@ import {
   GOOGLE_OAUTH_PROVIDER,
   GITHUB_OAUTH_PROVIDER,
 } from '../../constants/users.js';
-import { CONFIRMATION_CODE_INVALID_OR_EXPIRED, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_REFRESH_TOKEN, SESSION_EXPIRED, USER_CREATION_FAILED, USER_NOT_FOUND_OR_INVALID_CRED } from '../../constants/error_messages.js';
+import { AUTHORIZATION_ERROR, CONFIRMATION_CODE_INVALID_OR_EXPIRED, INTERNAL_SERVER_ERROR_MESSAGE, INVALID_REFRESH_TOKEN, SESSION_EXPIRED, USER_CREATION_FAILED, USER_NOT_FOUND_OR_INVALID_CRED } from '../../constants/error_messages.js';
 import HttpError from '../../utils/error/HttpError.js';
 import { hashPassword, comparePassword } from '../../utils/passwordUtils.js';
 import { randomLong, sha256Hex } from '../../utils/hash.js';
@@ -113,10 +113,6 @@ class AuthService {
 
   async logout({ userId, sessionId }: { userId: number; sessionId: string }): Promise<void> {
     await this.repository.removeSession(userId, sessionId);
-  }
-
-  async getUserById(id: number) {
-    return this.usersRepository.getUserById(id);
   }
 
   async addNewSession(userId: number, fingerprint: string) {
@@ -305,6 +301,24 @@ class AuthService {
   async update2FASecret(userId: number, secret: string, enabled: boolean): Promise<void> {
     await this.usersRepository.updateUser(userId, { two_factor_secret: secret, two_factor_enabled: enabled });
     await this.repository.deleteTemp2FASecret(userId);
+  }
+
+  async getUserEmailById(userId: number): Promise<string | null> {
+    const email = await this.usersRepository.getUserEmailById(userId);
+    return email;
+  }
+
+  async resetPassword(userId: number, password: string, newPassword: string): Promise<void> {
+    const userPassword = await this.repository.getUserById(userId).then(user => user?.password_hash);
+    if (!userPassword) {
+      throw new HttpError(StatusCodes.NOT_FOUND, USER_NOT_FOUND_OR_INVALID_CRED);
+    }
+    if (!(await comparePassword(password, userPassword))) {
+      throw new HttpError(StatusCodes.BAD_REQUEST, AUTHORIZATION_ERROR);
+    }
+    const newPasswordHash = await hashPassword(newPassword);
+
+    return this.repository.resetPassword(userId, newPasswordHash);
   }
 }
 

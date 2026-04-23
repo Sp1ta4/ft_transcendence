@@ -4,6 +4,7 @@ export const AUTHENTICATION_ERROR = 'Authentication error';
 export const AUTHORIZATION_ERROR = 'Authorization error';
 export const UNAUTHORIZED_ERROR = 'Unauthorized';
 export const INVALID_TOKEN_ERROR = 'Invalid token';
+export const BAD_REQUEST_ERROR = 'Bad request';
 export const NOT_FOUND_ERROR = 'Resource not found';
 export const USER_NOT_FOUND_OR_INVALID_CRED = 'User with this email is not found or invalid password';
 export const EMAIL_ALREADY_IN_USE = 'Email is already in use';

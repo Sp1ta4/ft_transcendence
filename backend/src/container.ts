@@ -8,9 +8,11 @@ import AuthController from './modules/auth/auth.controller.js';
 import UsersRepository from './modules/users/users.repository.js';
 import UsersService from './modules/users/users.service.js';
 import UsersController from './modules/users/users.controller.js';
+import StorageService from './resources/s3.js';
 
+const storageService = new StorageService();
 const usersRepository = new UsersRepository(prisma, redis);
-const usersService = new UsersService(usersRepository);
+const usersService = new UsersService(usersRepository, storageService);
 const usersController = new UsersController(usersService);
 
 const authRepository = new AuthRepository(prisma, redis);
@@ -20,6 +22,7 @@ const authController = new AuthController(authService);
 export const container = {
   prisma,
   redis,
+  storageService,
 
   usersRepository,
   usersService,

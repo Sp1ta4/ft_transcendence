@@ -158,21 +158,6 @@ class AuthController {
     }
   };
 
-  getCurrentUser = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const id = Number(res.locals.userId);
-      if (!Number.isInteger(id) || id <= 0) {
-        res.status(StatusCodes.UNAUTHORIZED).json({ error: UNAUTHORIZED_ERROR });
-        return;
-      }
-
-      const user = await this.service.getUserById(id);
-      res.status(StatusCodes.OK).json({ user });
-    } catch (err) {
-      next(err);
-    }
-  };
-
   private setRefreshCookie(res: Response, token: string): void {
     res.cookie('refreshToken', token, {
       httpOnly: true,
@@ -315,7 +300,7 @@ class AuthController {
         return;
       }
       await this.service.saveTemp2FASecret(userId, secret);
-      const userEmail = await this.service.getUserById(userId).then(user => user?.email);
+      const userEmail = await this.service.getUserEmailById(userId);
       if (!userEmail) {
         throw new HttpError(StatusCodes.NOT_FOUND, NOT_FOUND_ERROR);
       }
@@ -364,6 +349,34 @@ class AuthController {
       await this.service.update2FASecret(userId, '', false);
       res.status(StatusCodes.OK).json({ message: '2FA disabled successfully' });
     } catch (err) {
+      next(err);
+    }
+  }
+
+  resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { password, newPassword } = validateSchema(
+        req.body,
+        Joi.object({
+          password: Joi.string()
+            .pattern(/[A-Za-z]/, 'letter')
+            .pattern(/\d/, 'digit')
+            .min(8)
+            .max(64)
+            .required(),
+          newPassword: Joi.string()
+            .pattern(/[A-Za-z]/, 'letter')
+            .pattern(/\d/, 'digit')
+            .min(8)
+            .max(64)
+            .required()
+        })
+      );
+
+      await this.service.resetPassword(res.locals.userId, password, newPassword);
+      res.status(StatusCodes.OK).json({ message: 'Password reset successfully' });
+    }
+    catch (err) {
       next(err);
     }
   }
