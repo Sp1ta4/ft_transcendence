@@ -6,6 +6,10 @@ class UsersRepository {
   private db: PrismaClient;
   private cache: Redis;
 
+  private readonly MAX_CACHED_USERS = 500;
+  private readonly USER_TTL = 60 * 60 * 24; // 1 day
+  private readonly USER_HITS_KEY = 'users:cache:hits';
+
   constructor(db: PrismaClient, cache: Redis) {
     this.db = db;
     this.cache = cache;
@@ -37,6 +41,34 @@ class UsersRepository {
   }
 
   async getUserById(id: number) {
+    const cacheKey = `user:${id}`;
+    const cached = await this.cache.get(cacheKey);
+
+    if (cached) {
+      await this.cache.zincrby(this.USER_HITS_KEY, 1, cacheKey);
+      return JSON.parse(cached) as Awaited<ReturnType<typeof this._fetchUserById>>;
+    }
+
+    await this.cache.zrem(this.USER_HITS_KEY, cacheKey);
+
+    const user = await this._fetchUserById(id);
+    if (!user) return null;
+
+    const cacheSize = await this.cache.zcard(this.USER_HITS_KEY);
+    if (cacheSize >= this.MAX_CACHED_USERS) {
+      const [lfuKey] = await this.cache.zrange(this.USER_HITS_KEY, 0, 0);
+      if (lfuKey) {
+        await this.cache.del(lfuKey);
+        await this.cache.zrem(this.USER_HITS_KEY, lfuKey);
+      }
+    }
+
+    await this.cache.set(cacheKey, JSON.stringify(user), { EX: this.USER_TTL });
+    await this.cache.zadd(this.USER_HITS_KEY, 1, cacheKey);
+    return user;
+  }
+
+  private async _fetchUserById(id: number) {
     return this.db.user.findUnique({
       where: { id },
       select: {
@@ -120,6 +152,8 @@ class UsersRepository {
         user: true,
       },
     });
+    await this.cache.del(`user:${oAuthAccount.user.id}`);
+    await this.cache.zrem(this.USER_HITS_KEY, `user:${oAuthAccount.user.id}`);
     return oAuthAccount.user;
   }
 
@@ -155,10 +189,10 @@ class UsersRepository {
     two_factor_enabled: boolean;
     two_factor_secret: string | null;
   }>) {
-    return this.db.user.update({
-      where: { id },
-      data,
-    });
+    const result = await this.db.user.update({ where: { id }, data });
+    await this.cache.del(`user:${id}`);
+    await this.cache.zrem(this.USER_HITS_KEY, `user:${id}`);
+    return result;
   }
 
   async areFriends(userId: number, otherId: number): Promise<boolean> {
@@ -234,10 +268,10 @@ class UsersRepository {
     avatar_url: string | null;
     bio: string;
   }>) {
-    return this.db.user.update({
-      where: { id: userId },
-      data: profileData,
-    });
+    const result = await this.db.user.update({ where: { id: userId }, data: profileData });
+    await this.cache.del(`user:${userId}`);
+    await this.cache.zrem(this.USER_HITS_KEY, `user:${userId}`);
+    return result;
   }
 
   async getUsersList(query: string, limit: number) {

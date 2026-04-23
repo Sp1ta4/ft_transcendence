@@ -35,16 +35,23 @@ src/
     users/
       users.controller.ts
       users.service.ts
-      users.repository.ts # работа с Prisma (User, OAuthAccount)
+      users.repository.ts # работа с Prisma (User, OAuthAccount) + LFU-кэш
+    posts/
+      posts.controller.ts
+      posts.service.ts
+      posts.repository.ts # курсорная пагинация + Redis-кэш постов
   routes/
     auth.router.ts
     users.router.ts
+    posts.router.ts
     index.ts
   resources/
     prisma.ts             # PrismaClient singleton
     redis.ts              # Redis client singleton
   types/
     User/IAuthorization.ts
+    dtos/
+      IPagination.ts      # IPagination { limit, cursor? }, IPaginatedResult<T>
   utils/
     error/HttpError.ts
     error/DataValidationError.ts
@@ -55,6 +62,68 @@ src/
     checkEmailUnique.ts
   generated/prisma/       # авто-генерация Prisma (не редактировать)
 ```
+
+## Posts API
+
+Все роуты под префиксом `/api/v1/posts`. Требуют Bearer-токен (`authAccess` middleware).
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/:id` | Получить пост по ID (кэш 1 час) |
+| POST | `/list` | Курсорная пагинация постов (body: `{ limit?, cursor? }`) |
+| GET | `/:id/likes` | Лайки поста |
+| POST | `/:id/likes` | Поставить / убрать лайк |
+| GET | `/:id/comments` | Комментарии к посту |
+| POST | `/:id/comments` | Добавить комментарий |
+
+### Пагинация постов
+
+- Курсор — `id` (number) последнего полученного поста
+- `POST /list` читает параметры из `req.body`: `{ limit: 1–100 (default 20), cursor?: number }`
+- Первая страница (без `cursor`) **не кэшируется** — всегда свежие данные из БД
+- Страницы с `cursor` кэшируются на 2 минуты (`posts:list:limit=N:cursor=M`)
+- Отдельные посты кэшируются на 1 час (`post:{id}`) — переиспользуется и в `/list`, и в `/:id`
+
+## Users API
+
+Все роуты под префиксом `/api/v1/users`. Требуют Bearer-токен (`authAccess` middleware).
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/me` | Текущий пользователь |
+| GET | `/:id` | Пользователь по ID (LFU-кэш) |
+| GET | `/followers/:id` | Подписчики |
+| GET | `/following/:id` | Подписки |
+| POST | `/follow/:id` | Подписаться |
+| POST | `/unfollow/:id` | Отписаться |
+| POST | `/update` | Обновить профиль |
+| POST | `/avatar/update` | Загрузить аватар (multipart) |
+| DELETE | `/avatar/delete` | Удалить аватар |
+| POST | `/search` | Поиск пользователей (body: `{ query, limit? }`) |
+
+## Кэширование
+
+### Пользователи — LFU
+
+- Максимум **500** пользователей в кэше одновременно (`MAX_CACHED_USERS`)
+- TTL: **1 день** (`USER_TTL = 86400`)
+- При каждом cache hit счётчик обращений увеличивается на 1 (`ZINCRBY`)
+- При добавлении нового пользователя в полный кэш — вытесняется тот, у кого наименьший счётчик (`ZRANGE ... 0 0`)
+- Инвалидация: `updateUser`, `updateUserProfile`, `upsertUserFromOAuth` делают `DEL` + `ZREM`
+
+#### Redis-ключи пользователей
+
+| Ключ | TTL | Описание |
+|------|-----|----------|
+| `user:{id}` | 1 день | Сериализованный объект профиля |
+| `users:cache:hits` | — | Sorted set: member = `user:{id}`, score = кол-во обращений |
+
+### Посты
+
+| Ключ | TTL | Описание |
+|------|-----|----------|
+| `post:{id}` | 1 час | Сериализованный объект поста |
+| `posts:list:limit=N:cursor=M` | 2 мин | Массив ID постов для страницы (только при cursor ≠ undefined) |
 
 ## Auth API
 

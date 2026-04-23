@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { StatusCodes } from 'http-status-codes';import type UsersService from './users.service.js';
+import { StatusCodes } from 'http-status-codes';
+import type UsersService from './users.service.js';
 import { BAD_REQUEST_ERROR, NOT_FOUND_ERROR, UNAUTHORIZED_ERROR } from '../../constants/error_messages.js';
 import validateSchema from '../../utils/validateSchema.js';
 import Joi from 'joi';
